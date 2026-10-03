@@ -1,14 +1,16 @@
 # mod-gathering-tools
 
 An AzerothCore module: Mining and Skinning no longer need a Mining Pick or Skinning Knife in your
-bags. Carrying one still pays off: it gives **+10 skill** in that profession. Players are
-rewarded for bringing the tool, not stopped when they forget it or need the bag space.
+bags. Carrying one still pays off: it gives **+10 skill** in that profession and makes gathering
+**25% faster**. Players are rewarded for bringing the tool, not stopped when they forget it or need the bag space.
 
 - **No tool needed** for every rank of Mining and Skinning, and for mining a creature's corpse.
 - **+10 skill with the tool** (configurable): while the tool is in your bags or equipped, the
   skill window shows a green +10. Anything that counts as the tool works, like a Gnomish Army
   Knife, Hammer Pick or Bladed Pickaxe. It counts for which nodes and corpses you can gather, the
   same as a glove enchant. Skill-ups still come from your base skill.
+- **25% faster gathering with the tool** (configurable): mining a node or skinning a corpse takes
+  a quarter less time, and the cast bar shows it.
 
 ## How it works
 
@@ -19,6 +21,10 @@ rewarded for bringing the tool, not stopped when they forget it or need the bag 
   (Mining) and 90131 (Skinning), copies of Finkle's Skinner's +10 Skinning. The module gives or
   removes it every `GatheringTools.UpdateInterval` ms and again right before any Mining or
   Skinning cast, so a tool you just picked up already counts.
+- The faster gathering is a second effect on the same aura: cast time −25%, with an empty class
+  mask, so it can't touch any other spell. Mining and Skinning are generic spells no modifier
+  reaches through the usual family flags, so a `GlobalScript` (`OnIsAffectedBySpellModCheck`)
+  applies it to the matching profession's spells only.
 
 ## Client patch (required for "no tool needed")
 
@@ -30,8 +36,8 @@ Start from the Spell.dbc your realm patch already ships so its other changes sta
 python3 tools/patch-gathering-tools-dbc.py --from-mpq patch-P.MPQ --out patch-P.MPQ.new
 ```
 
-Packing needs StormLib (`STORMLIB=/path/to/libstorm.dylib`). The skill bonus needs no client
-change.
+Packing needs StormLib (`STORMLIB=/path/to/libstorm.dylib`). The skill bonus and the faster
+gathering need no client change: the client's cast bar follows the cast time the server sends.
 
 ## Install
 
@@ -50,9 +56,10 @@ start the server; the world SQL in `data/sql/db-world` is applied automatically.
 |---|---|---|
 | `GatheringTools.NoToolRequired` | 1 | Mining and Skinning work without the tool (needs the client patch). |
 | `GatheringTools.ToolSkillBonus` | 10 | Skill bonus while carrying the tool; 0 turns it off. |
+| `GatheringTools.ToolGatherSpeed` | 25 | Percent faster gathering while carrying the tool; 0 turns it off. |
 | `GatheringTools.UpdateInterval` | 2000 | How often (ms) the bonus is checked against your bags. |
 
-All three apply on `.reload config`.
+All four apply on `.reload config`.
 
 ## Uninstall
 

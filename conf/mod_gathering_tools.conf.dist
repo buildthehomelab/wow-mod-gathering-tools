@@ -4,7 +4,8 @@
 # mod-gathering-tools
 #
 # Mining and Skinning work without a Mining Pick or Skinning Knife in your bags. Carrying the
-# tool (or anything that counts as one, like a Gnomish Army Knife) gives a skill bonus instead.
+# tool (or anything that counts as one, like a Gnomish Army Knife) gives a skill bonus and faster
+# gathering instead.
 ########################################
 
 #
@@ -27,6 +28,16 @@ GatheringTools.NoToolRequired = 1
 #
 
 GatheringTools.ToolSkillBonus = 10
+
+#
+#    GatheringTools.ToolGatherSpeed
+#        Description: How much faster (in percent) mining and skinning are while the matching tool
+#                     is in your bags or equipped: 25 cuts the cast time by a quarter. 0 turns it
+#                     off, 100 makes gathering instant.
+#        Default:     25
+#
+
+GatheringTools.ToolGatherSpeed = 25
 
 #
 #    GatheringTools.UpdateInterval
