@@ -1,0 +1,39 @@
+[worldserver]
+
+########################################
+# mod-gathering-tools
+#
+# Mining and Skinning work without a Mining Pick or Skinning Knife in your bags. Carrying the
+# tool (or anything that counts as one, like a Gnomish Army Knife) gives a skill bonus instead.
+########################################
+
+#
+#    GatheringTools.NoToolRequired
+#        Description: Mining and Skinning (every rank, and mining a creature's corpse) don't need
+#                     the tool. The client checks the tool itself, so players also need the client
+#                     patch (tools/patch-gathering-tools-dbc.py); without it the client still says
+#                     "Requires Mining Pick". With 0, the tools are required again.
+#        Default:     1
+#
+
+GatheringTools.NoToolRequired = 1
+
+#
+#    GatheringTools.ToolSkillBonus
+#        Description: Mining or Skinning skill bonus while the matching tool is in your bags or
+#                     equipped. It shows as a green bonus in the skill window and counts for which
+#                     nodes and corpses you can gather, not for skill-ups. 0 turns the bonus off.
+#        Default:     10
+#
+
+GatheringTools.ToolSkillBonus = 10
+
+#
+#    GatheringTools.UpdateInterval
+#        Description: How often (in milliseconds) each player's tool bonus is checked against their
+#                     bags. It's also checked right before every Mining or Skinning cast, so this
+#                     only decides how soon the skill window shows a change.
+#        Default:     2000
+#
+
+GatheringTools.UpdateInterval = 2000
