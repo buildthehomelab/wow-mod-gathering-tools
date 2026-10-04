@@ -22,8 +22,10 @@
  *   (GatheringTools.ToolGatherSpeed). Mining and Skinning are generic spells that no spell
  *   modifier can reach through the usual family flags, so the effect has an empty class mask and
  *   a GlobalScript (OnIsAffectedBySpellModCheck) applies it to the matching profession's spells
- *   only. With an empty mask the client is told nothing; its cast bar follows the cast time the
- *   server sends, so this needs no client patch either.
+ *   only. The auras are moved to a spell family no spell uses: a generic (family 0) modifier
+ *   reaches every spell whatever its mask, which made all casts faster and Lightning Bolt
+ *   instant at 3 Maelstrom Weapon stacks. With an empty mask the client is told nothing; its cast
+ *   bar follows the cast time the server sends, so this needs no client patch either.
  *
  * The aura is checked every few seconds (GatheringTools.UpdateInterval) and again right before
  * any Mining or Skinning cast, so the bonus is always right at the moment it counts.
@@ -49,6 +51,10 @@ namespace
     // Must match data/sql/db-world/updates and tools/patch-gathering-tools-dbc.py.
     constexpr uint32 SPELL_MINING_PICK_BONUS    = 90130;
     constexpr uint32 SPELL_SKINNING_KNIFE_BONUS = 90131;
+
+    // No spell has this family (SharedDefines: "16 - unused"), so the tool auras' modifiers reach
+    // nothing on their own. In family 0 they would reach every spell (SpellInfo::IsAffected).
+    constexpr uint32 SPELLFAMILY_TOOL_BONUS = 16;
 
     constexpr uint32 TOTEM_CATEGORY_MINING_PICK    = 165;
     constexpr uint32 TOTEM_CATEGORY_SKINNING_KNIFE = 166;
@@ -136,6 +142,7 @@ namespace
         {
             if (SpellInfo* spellInfo = const_cast<SpellInfo*>(sSpellMgr->GetSpellInfo(bonus.spellId)))
             {
+                spellInfo->SpellFamilyName = SPELLFAMILY_TOOL_BONUS;
                 spellInfo->Effects[EFFECT_0].BasePoints = config.skillBonus - 1;
                 spellInfo->Effects[EFFECT_1].BasePoints = -config.gatherSpeed - 1;
             }
@@ -232,8 +239,8 @@ public:
 };
 
 // Lets the tool auras' cast time modifier reach the gathering spells. Returning false means
-// "affected"; true leaves the decision to the class mask, which is empty on these auras, so they
-// touch nothing else.
+// "affected"; true leaves the decision to the family and class mask, and no spell is in these
+// auras' family, so they touch nothing else.
 class GatheringToolsGlobalScript : public GlobalScript
 {
 public:
