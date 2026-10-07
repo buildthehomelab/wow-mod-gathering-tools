@@ -39,6 +39,13 @@ python3 tools/patch-gathering-tools-dbc.py --from-mpq patch-P.MPQ --out patch-P.
 Packing needs StormLib (`STORMLIB=/path/to/libstorm.dylib`). The skill bonus and the faster
 gathering need no client change: the client's cast bar follows the cast time the server sends.
 
+## Requirements
+
+- [AzerothCore](https://www.azerothcore.org/) wotlk (master) and a WoW 3.3.5a (12340) client.
+- A client patch for "no tool needed" (see above). Python 3 and
+  [StormLib](https://github.com/ladislav-zezula/StormLib) are needed to build it. The skill bonus
+  and the faster gathering work without it.
+
 ## Install
 
 ```bash
@@ -66,6 +73,21 @@ All four apply on `.reload config`.
 Remove the module and run `data/sql/uninstall/mod_gathering_tools_uninstall_world.sql` on the
 world database.
 
+## Troubleshooting
+
+- **The client still says "Requires Mining Pick" (or Skinning Knife).** The client checks the tool
+  itself, so "no tool needed" only works with the client patch. Build it from the Spell.dbc your
+  realm patch already ships so its other changes stay.
+- **The +10 skill or the faster gathering doesn't show right after picking up the tool.** The bags
+  are checked every `GatheringTools.UpdateInterval` ms and again right before each Mining or
+  Skinning cast, so it is in place by the time you gather.
+- **The patch script can't pack the MPQ.** Set `STORMLIB=/path/to/libstorm.dylib` to your
+  StormLib build.
+
+## Credits
+
+Author: [buildthehomelab](https://github.com/buildthehomelab)
+
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE).
