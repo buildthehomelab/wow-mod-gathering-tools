@@ -30,21 +30,35 @@
  * The aura is checked every few seconds (GatheringTools.UpdateInterval) and again right before
  * any Mining or Skinning cast, so the bonus is always right at the moment it counts.
  *
+ * - Bosses stay skinnable in bot groups: a corpse can only be skinned once nothing is left on it,
+ *   and that includes loot the players can't see. Bots pass on quest items (Head of Onyxia) and
+ *   leave their own copy of the per-player ones (Mature Black Dragon Sinew), so the boss never
+ *   counted as looted. Once the players have taken everything that is theirs, quest items only
+ *   bots could still loot are thrown away and the corpse becomes skinnable
+ *   (GatheringTools.DiscardBotQuestLootOnBosses).
+ *
  * Released under the MIT License.
  */
 
 #include "Config.h"
+#include "Creature.h"
 #include "DataMap.h"
+#include "Group.h"
+#include "LootMgr.h"
 #include "ObjectAccessor.h"
+#include "ObjectMgr.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
+#include "WorldSession.h"
 
 #include <algorithm>
 #include <array>
+#include <type_traits>
 #include <unordered_map>
+#include <vector>
 
 namespace
 {
@@ -86,7 +100,11 @@ namespace
         int32 skillBonus = 10;
         int32 gatherSpeed = 25;
         uint32 updateInterval = 2000;
+        bool discardBotQuestLoot = true;
     } config;
+
+    // How often a boss's corpse is checked for loot only bots could still take.
+    constexpr uint32 CORPSE_CHECK_INTERVAL = 1000;
 
     // The spells' stock tool requirements, so turning NoToolRequired off on a reload restores them.
     std::unordered_map<uint32, std::array<uint32, 2>> stockTotemCategories;
@@ -164,6 +182,155 @@ namespace
                 player->RemoveAurasDueToSpell(bonus.spellId);
         }
     }
+
+    // Bot sessions: IsHeadless() on current playerbots cores, IsBot() on older ones.
+    template <typename Session, typename = void>
+    struct HasIsHeadless : std::false_type { };
+
+    template <typename Session>
+    struct HasIsHeadless<Session, std::void_t<decltype(std::declval<Session&>().IsHeadless())>> : std::true_type { };
+
+    template <typename Session, typename = void>
+    struct HasIsBot : std::false_type { };
+
+    template <typename Session>
+    struct HasIsBot<Session, std::void_t<decltype(std::declval<Session&>().IsBot())>> : std::true_type { };
+
+    template <typename Session>
+    bool IsBotSession(Session* session)
+    {
+        if constexpr (HasIsHeadless<Session>::value)
+            return session->IsHeadless();
+        else if constexpr (HasIsBot<Session>::value)
+            return session->IsBot();
+        else
+            return false;
+    }
+
+    bool IsBot(Player const* player)
+    {
+        WorldSession* session = player->GetSession();
+        return session && IsBotSession(session);
+    }
+
+    bool IsQuestItem(LootItem const& item)
+    {
+        if (item.needs_quest)
+            return true;
+
+        ItemTemplate const* proto = sObjectMgr->GetItemTemplate(item.itemid);
+        return proto && (proto->Class == ITEM_CLASS_QUEST || proto->StartQuest);
+    }
+
+    // One of the loot's per-player lists (quest items, each player's own copy of a shared item).
+    // False when an entry has to stay on the corpse: it belongs to a player, or to someone who is
+    // offline and might be one, or it is a bot's but not a quest item.
+    bool OnlyBotQuestItemsLeft(Creature const* creature, QuestItemMap const& lists, std::vector<LootItem> const& items,
+        bool recheckPlayers)
+    {
+        for (auto const& [guid, list] : lists)
+        {
+            Player* owner = ObjectAccessor::FindConnectedPlayer(guid);
+            bool const bot = owner && IsBot(owner);
+
+            for (QuestItem const& entry : *list)
+            {
+                if (entry.index >= items.size())
+                    continue;
+
+                LootItem const& item = items[entry.index];
+                if (entry.is_looted || item.is_looted)
+                    continue;
+
+                if (bot)
+                {
+                    if (!IsQuestItem(item))
+                        return false;
+
+                    continue;
+                }
+
+                // The master looter is listed for quest items they have no quest for.
+                if (recheckPlayers && owner && owner->IsInMap(creature)
+                    && !item.AllowedForPlayer(owner, creature->loot.sourceWorldObjectGUID))
+                    continue;
+
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // Whether all that is left on the corpse is quest items only bots could loot.
+    bool OnlyBotQuestLootLeft(Creature const* creature)
+    {
+        Loot const& loot = creature->loot;
+        Group const* group = creature->GetLootRecipientGroup();
+
+        // The players who can loot this corpse. Bot groups are left alone, and nothing is thrown
+        // away while a player is out of the instance: they could come back for it.
+        std::vector<Player*> players;
+        auto addLooter = [&](Player* looter)
+        {
+            if (!looter || IsBot(looter))
+                return true;
+
+            if (!looter->IsInMap(creature))
+                return false;
+
+            players.push_back(looter);
+            return true;
+        };
+
+        if (group)
+        {
+            for (GroupReference const* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+                if (!addLooter(itr->GetSource()))
+                    return false;
+        }
+        else if (!addLooter(creature->GetLootRecipient()))
+            return false;
+
+        if (players.empty())
+            return false;
+
+        // With a master looter, rolled items stay blocked until they are handed out; with any
+        // other loot method a blocked item means a roll is still running.
+        bool const masterLoot = group && group->GetLootMethod() == MASTER_LOOT;
+
+        for (LootItem const& item : loot.items)
+        {
+            // Shared items are in the per-player lists below.
+            if (item.is_looted || item.freeforall)
+                continue;
+
+            if (item.is_blocked && !masterLoot)
+                return false;
+
+            for (Player* player : players)
+                if (item.AllowedForPlayer(player, loot.sourceWorldObjectGUID))
+                    return false;
+
+            // Who could loot it when the boss died, for the ones who aren't here to ask now.
+            bool forBot = false;
+            for (ObjectGuid const& guid : item.GetAllowedLooters())
+            {
+                Player* looter = ObjectAccessor::FindConnectedPlayer(guid);
+                if (looter && IsBot(looter))
+                    forBot = true;
+                else if (std::find(players.begin(), players.end(), looter) == players.end())
+                    return false;
+            }
+
+            if (forBot && !IsQuestItem(item))
+                return false;
+        }
+
+        return OnlyBotQuestItemsLeft(creature, loot.GetPlayerQuestItems(), loot.quest_items, true)
+            && OnlyBotQuestItemsLeft(creature, loot.GetPlayerFFAItems(), loot.items, false)
+            && OnlyBotQuestItemsLeft(creature, loot.GetPlayerNonQuestNonFFAConditionalItems(), loot.items, false);
+    }
 }
 
 class GatheringToolsWorldScript : public WorldScript
@@ -178,6 +345,7 @@ public:
         config.skillBonus     = sConfigMgr->GetOption<int32>("GatheringTools.ToolSkillBonus", 10);
         config.gatherSpeed    = std::clamp(sConfigMgr->GetOption<int32>("GatheringTools.ToolGatherSpeed", 25), 0, 100);
         config.updateInterval = sConfigMgr->GetOption<uint32>("GatheringTools.UpdateInterval", 2000);
+        config.discardBotQuestLoot = sConfigMgr->GetOption<bool>("GatheringTools.DiscardBotQuestLootOnBosses", true);
 
         // At startup the spells aren't loaded yet; OnBeforeWorldInitialized does it then.
         if (!reload)
@@ -258,10 +426,55 @@ public:
     }
 };
 
+// A boss's corpse becomes skinnable once the players have looted what is theirs, even if quest
+// items only bots could loot are still on it. The core only counts a corpse as looted when nothing
+// at all is left, and bots leave quest items behind.
+class GatheringToolsCreatureScript : public AllCreatureScript
+{
+public:
+    GatheringToolsCreatureScript() : AllCreatureScript("GatheringToolsCreatureScript") { }
+
+    void OnAllCreatureUpdate(Creature* creature, uint32 diff) override
+    {
+        if (!config.discardBotQuestLoot || creature->getDeathState() != DeathState::Corpse)
+            return;
+
+        if (!creature->IsDungeonBoss() && !creature->isWorldBoss())
+            return;
+
+        if (creature->HasUnitFlag(UNIT_FLAG_SKINNABLE) || !creature->HasDynamicFlag(UNIT_DYNFLAG_LOOTABLE))
+            return;
+
+        // Gold is for everyone, so the players haven't finished looting while it is there.
+        Loot& loot = creature->loot;
+        if (loot.loot_type == LOOT_SKINNING || loot.loot_type == LOOT_PICKPOCKETING || loot.gold || loot.isLooted())
+            return;
+
+        uint32 const skinLoot = creature->GetCreatureTemplate()->SkinLootId;
+        if (!skinLoot || !LootTemplates_Skinning.HaveLootFor(skinLoot))
+            return;
+
+        UpdateTimer* state = creature->CustomData.GetDefault<UpdateTimer>("mod-gathering-tools");
+        state->timer += diff;
+        if (state->timer < CORPSE_CHECK_INTERVAL)
+            return;
+
+        state->timer = 0;
+        if (!OnlyBotQuestLootLeft(creature))
+            return;
+
+        // What the core does when the last item is looted.
+        creature->AllLootRemovedFromCorpse();
+        creature->RemoveDynamicFlag(UNIT_DYNFLAG_LOOTABLE);
+        loot.clear();
+    }
+};
+
 void AddGatheringToolsScripts()
 {
     new GatheringToolsWorldScript();
     new GatheringToolsGlobalScript();
     new GatheringToolsPlayerScript();
     new GatheringToolsSpellScript();
+    new GatheringToolsCreatureScript();
 }

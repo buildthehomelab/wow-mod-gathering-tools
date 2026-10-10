@@ -48,3 +48,18 @@ GatheringTools.ToolGatherSpeed = 25
 #
 
 GatheringTools.UpdateInterval = 2000
+
+#
+#    GatheringTools.DiscardBotQuestLootOnBosses
+#        Description: A corpse can only be skinned once nothing is left on it, including loot only
+#                     other group members can see. Bots pass on quest items (Head of Onyxia) and
+#                     leave their own copy of per-player ones (Mature Black Dragon Sinew), so a
+#                     boss killed with bots never becomes skinnable. With 1, once the players have
+#                     taken all their loot from a skinnable boss, quest items only bots could
+#                     still loot are thrown away and the corpse becomes skinnable. Nothing is
+#                     thrown away while a roll is running, while gold is left, or while a player
+#                     of the group is outside the instance. Groups of only bots are left alone.
+#        Default:     1
+#
+
+GatheringTools.DiscardBotQuestLootOnBosses = 1
