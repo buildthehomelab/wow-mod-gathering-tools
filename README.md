@@ -38,6 +38,8 @@ bags. Carrying one still pays off: it gives **+10 skill** in that profession and
   becomes skinnable. A unique item a player already carries doesn't count as theirs, since they
   can't loot a second one. Loot a player can still take is never thrown away, nothing happens
   while a player of the group is outside the instance, and groups of only bots are left alone.
+  While a boss can't be skinned yet, `Server.log` says what is in the way
+  (`mod-gathering-tools: Onyxia can't be skinned yet: Thrall can still loot Head of Onyxia (18422)`).
 
 ## Client patch (required for "no tool needed")
 
