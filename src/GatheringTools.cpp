@@ -31,11 +31,12 @@
  * any Mining or Skinning cast, so the bonus is always right at the moment it counts.
  *
  * - Bosses stay skinnable in bot groups: a corpse can only be skinned once nothing is left on it,
- *   and that includes loot the players can't see. Bots pass on quest items (Head of Onyxia) and
- *   leave their own copy of the per-player ones (Mature Black Dragon Sinew), so the boss never
- *   counted as looted. Once the players have taken everything that is theirs, quest items only
- *   bots could still loot are thrown away and the corpse becomes skinnable
- *   (GatheringTools.DiscardBotQuestLootOnBosses).
+ *   and that includes loot the players can't see. Bots pass on quest items (Head of Onyxia),
+ *   leave their own copy of the per-player ones (Mature Black Dragon Sinew), and can win a unique
+ *   item they already carry, which the core then keeps on the corpse for them. So the boss never
+ *   counted as looted. Once the players have taken everything they can, what is left is thrown
+ *   away and the corpse becomes skinnable (GatheringTools.DiscardBotQuestLootOnBosses). A unique
+ *   item a player already carries doesn't count as theirs either: they can't loot a second one.
  *
  * Released under the MIT License.
  */
@@ -46,7 +47,6 @@
 #include "Group.h"
 #include "LootMgr.h"
 #include "ObjectAccessor.h"
-#include "ObjectMgr.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -213,25 +213,31 @@ namespace
         return session && IsBotSession(session);
     }
 
-    bool IsQuestItem(LootItem const& item)
+    // Whether the player could still take this item off the corpse. Not when it is reserved for
+    // the winner of its roll (the core keeps it for a winner who couldn't carry it), and not when
+    // it is a unique item the player already carries.
+    bool CanStillLoot(Player const* player, LootItem const& item, ObjectGuid source)
     {
-        if (item.needs_quest)
-            return true;
+        if (!item.AllowedForPlayer(player, source))
+            return false;
 
-        ItemTemplate const* proto = sObjectMgr->GetItemTemplate(item.itemid);
-        return proto && (proto->Class == ITEM_CLASS_QUEST || proto->StartQuest);
+        if (item.rollWinnerGUID && item.rollWinnerGUID != player->GetGUID())
+            return false;
+
+        ItemPosCountVec dest;
+        return player->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, item.itemid, item.count) != EQUIP_ERR_CANT_CARRY_MORE_OF_THIS;
     }
 
-    // One of the loot's per-player lists (quest items, each player's own copy of a shared item).
-    // False when an entry has to stay on the corpse: it belongs to a player, or to someone who is
-    // offline and might be one, or it is a bot's but not a quest item.
-    bool OnlyBotQuestItemsLeft(Creature const* creature, QuestItemMap const& lists, std::vector<LootItem> const& items,
-        bool recheckPlayers)
+    // One of the loot's per-player lists (quest items, each player's own copy of a shared item,
+    // items that drop on a condition). False when an entry has to stay on the corpse: a player
+    // could still take it, or it belongs to someone who is offline and might be a player.
+    bool OnlyBotItemsLeft(Creature const* creature, QuestItemMap const& lists, std::vector<LootItem> const& items)
     {
         for (auto const& [guid, list] : lists)
         {
             Player* owner = ObjectAccessor::FindConnectedPlayer(guid);
-            bool const bot = owner && IsBot(owner);
+            if (owner && IsBot(owner))
+                continue;
 
             for (QuestItem const& entry : *list)
             {
@@ -242,17 +248,8 @@ namespace
                 if (entry.is_looted || item.is_looted)
                     continue;
 
-                if (bot)
-                {
-                    if (!IsQuestItem(item))
-                        return false;
-
-                    continue;
-                }
-
                 // The master looter is listed for quest items they have no quest for.
-                if (recheckPlayers && owner && owner->IsInMap(creature)
-                    && !item.AllowedForPlayer(owner, creature->loot.sourceWorldObjectGUID))
+                if (owner && owner->IsInMap(creature) && !CanStillLoot(owner, item, creature->loot.sourceWorldObjectGUID))
                     continue;
 
                 return false;
@@ -262,8 +259,8 @@ namespace
         return true;
     }
 
-    // Whether all that is left on the corpse is quest items only bots could loot.
-    bool OnlyBotQuestLootLeft(Creature const* creature)
+    // Whether all that is left on the corpse is loot no player of the group could take.
+    bool OnlyBotLootLeft(Creature const* creature)
     {
         Loot const& loot = creature->loot;
         Group const* group = creature->GetLootRecipientGroup();
@@ -309,27 +306,24 @@ namespace
                 return false;
 
             for (Player* player : players)
-                if (item.AllowedForPlayer(player, loot.sourceWorldObjectGUID))
+                if (CanStillLoot(player, item, loot.sourceWorldObjectGUID))
                     return false;
 
             // Who could loot it when the boss died, for the ones who aren't here to ask now.
-            bool forBot = false;
             for (ObjectGuid const& guid : item.GetAllowedLooters())
             {
                 Player* looter = ObjectAccessor::FindConnectedPlayer(guid);
                 if (looter && IsBot(looter))
-                    forBot = true;
-                else if (std::find(players.begin(), players.end(), looter) == players.end())
+                    continue;
+
+                if (std::find(players.begin(), players.end(), looter) == players.end())
                     return false;
             }
-
-            if (forBot && !IsQuestItem(item))
-                return false;
         }
 
-        return OnlyBotQuestItemsLeft(creature, loot.GetPlayerQuestItems(), loot.quest_items, true)
-            && OnlyBotQuestItemsLeft(creature, loot.GetPlayerFFAItems(), loot.items, false)
-            && OnlyBotQuestItemsLeft(creature, loot.GetPlayerNonQuestNonFFAConditionalItems(), loot.items, false);
+        return OnlyBotItemsLeft(creature, loot.GetPlayerQuestItems(), loot.quest_items)
+            && OnlyBotItemsLeft(creature, loot.GetPlayerFFAItems(), loot.items)
+            && OnlyBotItemsLeft(creature, loot.GetPlayerNonQuestNonFFAConditionalItems(), loot.items);
     }
 }
 
@@ -426,9 +420,9 @@ public:
     }
 };
 
-// A boss's corpse becomes skinnable once the players have looted what is theirs, even if quest
-// items only bots could loot are still on it. The core only counts a corpse as looted when nothing
-// at all is left, and bots leave quest items behind.
+// A boss's corpse becomes skinnable once the players have looted what they can, even if loot only
+// bots could take is still on it. The core only counts a corpse as looted when nothing at all is
+// left, and bots leave quest items and unique items they already carry behind.
 class GatheringToolsCreatureScript : public AllCreatureScript
 {
 public:
@@ -460,7 +454,7 @@ public:
             return;
 
         state->timer = 0;
-        if (!OnlyBotQuestLootLeft(creature))
+        if (!OnlyBotLootLeft(creature))
             return;
 
         // What the core does when the last item is looted.

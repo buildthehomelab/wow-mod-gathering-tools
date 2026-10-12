@@ -11,8 +11,8 @@ bags. Carrying one still pays off: it gives **+10 skill** in that profession and
   same as a glove enchant. Skill-ups still come from your base skill.
 - **25% faster gathering with the tool** (configurable): mining a node or skinning a corpse takes
   a quarter less time, and the cast bar shows it.
-- **Bosses stay skinnable in bot groups**: quest items only bots could still loot, like a Head of
-  Onyxia they passed on, no longer stop you from skinning the boss.
+- **Bosses stay skinnable in bot groups**: loot only bots could still take, like a Head of
+  Onyxia they passed on, no longer stops you from skinning the boss.
 
 ## How it works
 
@@ -29,12 +29,15 @@ bags. Carrying one still pays off: it gives **+10 skill** in that profession and
   applies it to the matching profession's spells only.
 
 - A corpse only becomes skinnable once nothing is left on it, and the core counts loot that only
-  other group members can see. Bots pass the roll on quest items and don't pick up their own copy
-  of per-player ones, so a boss killed with bots was never "fully looted". Once a second the
-  module checks the corpse of each skinnable boss: when no player of the group has anything left
-  to loot, no roll is running and the gold is gone, quest items only bots could loot are thrown
-  away and the corpse becomes skinnable. Other loot is never thrown away, nothing happens while a
-  player of the group is outside the instance, and groups of only bots are left alone.
+  other group members can see. Bots pass the roll on quest items, don't pick up their own copy of
+  per-player ones, leave behind items that only drop for someone on a quest (Draconic for
+  Dummies), and can win a unique item they already carry, which the core then keeps on the corpse
+  for them. So a boss killed with bots was never "fully looted". Once a second the module checks
+  the corpse of each skinnable boss: when no player of the group has anything left that they
+  could loot, no roll is running and the gold is gone, what is left is thrown away and the corpse
+  becomes skinnable. A unique item a player already carries doesn't count as theirs, since they
+  can't loot a second one. Loot a player can still take is never thrown away, nothing happens
+  while a player of the group is outside the instance, and groups of only bots are left alone.
 
 ## Client patch (required for "no tool needed")
 
@@ -75,7 +78,7 @@ start the server; the world SQL in `data/sql/db-world` is applied automatically.
 | `GatheringTools.ToolSkillBonus` | 10 | Skill bonus while carrying the tool; 0 turns it off. |
 | `GatheringTools.ToolGatherSpeed` | 25 | Percent faster gathering while carrying the tool; 0 turns it off. |
 | `GatheringTools.UpdateInterval` | 2000 | How often (ms) the bonus is checked against your bags. |
-| `GatheringTools.DiscardBotQuestLootOnBosses` | 1 | Skinnable bosses: quest items only bots could loot don't block skinning. |
+| `GatheringTools.DiscardBotQuestLootOnBosses` | 1 | Skinnable bosses: loot only bots could take doesn't block skinning. |
 
 All five apply on `.reload config`.
 
