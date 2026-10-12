@@ -249,15 +249,25 @@ namespace
         return Acore::StringFormat("{} ({})", proto ? proto->Name1 : "unknown item", itemId);
     }
 
+    // Whether this character may still loot the corpse at all. Someone who has left the group
+    // since the kill may not, so what was theirs is nobody's.
+    bool HasLootRights(Creature const* creature, Group const* group, ObjectGuid guid)
+    {
+        return group ? group->IsMember(guid) : creature->GetLootRecipientGUID() == guid;
+    }
+
     // One of the loot's per-player lists (quest items, each player's own copy of a shared item,
     // items that drop on a condition). False when an entry has to stay on the corpse: a player
     // could still take it, or it belongs to someone who is offline and might be a player.
     // `reason` then says which, for the log.
-    bool OnlyBotItemsLeft(Creature const* creature, QuestItemMap const& lists, std::vector<LootItem> const& items,
-        std::string& reason)
+    bool OnlyBotItemsLeft(Creature const* creature, Group const* group, QuestItemMap const& lists,
+        std::vector<LootItem> const& items, std::string& reason)
     {
         for (auto const& [guid, list] : lists)
         {
+            if (!HasLootRights(creature, group, guid))
+                continue;
+
             Player* owner = ObjectAccessor::FindConnectedPlayer(guid);
             if (owner && IsBot(owner))
                 continue;
@@ -332,7 +342,9 @@ namespace
         // rolls themselves are asked, not the items' "blocked" mark: with Group Loot the core
         // sets that mark on an item everyone is passed on automatically and never takes it off
         // again. One faction's Head of Onyxia is such an item on every kill by the other faction.
-        if (group)
+        // Rolls only run while the corpse's roll timer does; the group's list of them belongs to
+        // every map its members are on, so it isn't read when there is no need.
+        if (group && creature->m_groupLootTimer)
         {
             for (Roll const* roll : group->GetRolls())
             {
@@ -344,10 +356,18 @@ namespace
             }
         }
 
+        // With a master looter, rolled items stay blocked until they are handed out.
+        bool const masterLoot = group && group->GetLootMethod() == MASTER_LOOT;
+
         for (LootItem const& item : loot.items)
         {
             // Shared items are in the per-player lists below.
             if (item.is_looted || item.freeforall)
+                continue;
+
+            // No roll is running, so this is an item the core left blocked after a roll nobody
+            // could join. It lets nobody loot a blocked item.
+            if (item.is_blocked && !masterLoot)
                 continue;
 
             for (Player* player : players)
@@ -362,6 +382,9 @@ namespace
             // Who could loot it when the boss died, for the ones who aren't here to ask now.
             for (ObjectGuid const& guid : item.GetAllowedLooters())
             {
+                if (!HasLootRights(creature, group, guid))
+                    continue;
+
                 Player* looter = ObjectAccessor::FindConnectedPlayer(guid);
                 if (looter && IsBot(looter))
                     continue;
@@ -374,9 +397,9 @@ namespace
             }
         }
 
-        return OnlyBotItemsLeft(creature, loot.GetPlayerQuestItems(), loot.quest_items, reason)
-            && OnlyBotItemsLeft(creature, loot.GetPlayerFFAItems(), loot.items, reason)
-            && OnlyBotItemsLeft(creature, loot.GetPlayerNonQuestNonFFAConditionalItems(), loot.items, reason);
+        return OnlyBotItemsLeft(creature, group, loot.GetPlayerQuestItems(), loot.quest_items, reason)
+            && OnlyBotItemsLeft(creature, group, loot.GetPlayerFFAItems(), loot.items, reason)
+            && OnlyBotItemsLeft(creature, group, loot.GetPlayerNonQuestNonFFAConditionalItems(), loot.items, reason);
     }
 }
 
@@ -493,7 +516,7 @@ public:
             return;
 
         Loot& loot = creature->loot;
-        if (loot.loot_type == LOOT_SKINNING || loot.loot_type == LOOT_PICKPOCKETING || loot.isLooted())
+        if (loot.loot_type == LOOT_SKINNING || loot.loot_type == LOOT_PICKPOCKETING)
             return;
 
         uint32 const skinLoot = creature->GetCreatureTemplate()->SkinLootId;
@@ -507,8 +530,11 @@ public:
 
         state->timer = 0;
 
+        // The last item can also leave the corpse through a roll, when its winner gets it. The
+        // core only notices an empty corpse when someone closes its loot window, and by then
+        // nobody has a reason to open it: the corpse would stay lootable and unskinnable.
         std::string reason;
-        if (!OnlyBotLootLeft(creature, reason))
+        if (!loot.isLooted() && !OnlyBotLootLeft(creature, reason))
         {
             // So a boss that stays unskinnable can be explained from Server.log.
             time_t const now = GameTime::GetGameTime().count();
@@ -522,8 +548,12 @@ public:
             return;
         }
 
-        LOG_INFO("module", "mod-gathering-tools: {} can be skinned now, what only bots could loot was thrown away",
-            creature->GetName());
+        if (loot.isLooted())
+            LOG_DEBUG("module", "mod-gathering-tools: {} can be skinned now, its last loot went to a roll winner", creature->GetName());
+        else
+            LOG_INFO("module", "mod-gathering-tools: {} can be skinned now, what only bots could loot was thrown away",
+                creature->GetName());
+
         state->loggedReason.clear();
 
         // What the core does when the last item is looted.
