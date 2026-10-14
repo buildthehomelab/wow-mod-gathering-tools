@@ -5,8 +5,8 @@ client's Spell.dbc, for the client patch.
 
 The client checks a spell's tool itself and says "Requires Mining Pick" without asking the
 server, so the server change alone isn't enough. A patch MPQ replaces the whole Spell.dbc, so
-start from the one your realm patch already ships (patch-P on this server) to keep its other
-changes:
+start from the one your realm patch already ships (patch-P.MPQ below is an example name) to keep
+its other changes:
 
     python3 patch-gathering-tools-dbc.py --from-mpq patch-P.MPQ --out patch-P.MPQ.new
     python3 patch-gathering-tools-dbc.py --dbc Spell.dbc --out-dir DBFilesClient
@@ -128,7 +128,7 @@ def pack(out, files):
     if os.path.exists(out):
         os.remove(out)
     h = handle()
-    # MPQ v1 with a listfile and attributes; each file zlib-compressed, like the realm's patches.
+    # MPQ v1 with a listfile and attributes; each file zlib-compressed, like other client patches.
     if not lib.SFileCreateArchive(out.encode(), 0x00300000, max(16, len(files) * 2), ctypes.byref(h)):
         sys.exit(f"can't create {out}")
     for src, name in files:

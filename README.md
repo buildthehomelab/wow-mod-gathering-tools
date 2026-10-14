@@ -45,7 +45,8 @@ bags. Carrying one still pays off: it gives **+10 skill** in that profession and
 
 The 3.3.5a client checks a spell's tool itself and says "Requires Mining Pick" without asking the
 server. `tools/patch-gathering-tools-dbc.py` clears the same fields in the client's Spell.dbc.
-Start from the Spell.dbc your realm patch already ships so its other changes stay:
+Start from the Spell.dbc your realm patch already ships so its other changes stay (`patch-P.MPQ`
+is an example name):
 
 ```bash
 python3 tools/patch-gathering-tools-dbc.py --from-mpq patch-P.MPQ --out patch-P.MPQ.new
